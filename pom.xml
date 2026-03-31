@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!--
+    AI Tool Usage BOM
+    - - - - - - - - -
+
+    AI Tools Used:
+    - Anthropic Claude Sonnet 4.6
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.github.crac</groupId>
+    <artifactId>log4j-systemd-appender</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Log4j 2 Systemd Journal Appender</name>
+    <description>Log4j 2 appender that sends structured log events to the systemd journal via Unix datagram socket</description>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <log4j.version>2.23.1</log4j.version>
+        <junit.version>5.10.2</junit.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.apache.logging.log4j</groupId>
+                            <artifactId>log4j-core</artifactId>
+                            <version>${log4j.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+            <!--
+                Compile the JNI shim for four targets (glibc and musl, x86_64 and aarch64).
+                Build requirements:
+                  - gcc                      (package: gcc)
+                  - aarch64-linux-gnu-gcc    (package: gcc-aarch64-linux-gnu)
+                  - musl-gcc                 (package: musl-tools)
+                  - aarch64-linux-musl-gcc   (musl cross-compilation toolchain, e.g. from musl.cc)
+                The .so files land in target/classes/native/... and are bundled in the JAR.
+                NativeLoader selects the musl variant at runtime when the musl dynamic linker
+                is detected (i.e. on Alpine Linux and other musl-based distributions).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>compile-native</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.outputDirectory}/native/linux-x86_64"/>
+                                <mkdir dir="${project.build.outputDirectory}/native/linux-aarch64"/>
+                                <mkdir dir="${project.build.outputDirectory}/native/linux-x86_64-musl"/>
+                                <mkdir dir="${project.build.outputDirectory}/native/linux-aarch64-musl"/>
+                                <exec executable="gcc" failonerror="true">
+                                    <arg value="-shared"/>
+                                    <arg value="-fPIC"/>
+                                    <arg value="-O2"/>
+                                    <arg value="-o"/>
+                                    <arg value="${project.build.outputDirectory}/native/linux-x86_64/libjournalsocket.so"/>
+                                    <arg value="${project.basedir}/src/main/c/unix_dgram.c"/>
+                                    <arg value="-I${java.home}/include"/>
+                                    <arg value="-I${java.home}/include/linux"/>
+                                </exec>
+                                <exec executable="aarch64-linux-gnu-gcc" failonerror="true">
+                                    <arg value="-shared"/>
+                                    <arg value="-fPIC"/>
+                                    <arg value="-O2"/>
+                                    <arg value="-o"/>
+                                    <arg value="${project.build.outputDirectory}/native/linux-aarch64/libjournalsocket.so"/>
+                                    <arg value="${project.basedir}/src/main/c/unix_dgram.c"/>
+                                    <arg value="-I${java.home}/include"/>
+                                    <arg value="-I${java.home}/include/linux"/>
+                                </exec>
+                                <exec executable="sh" failonerror="true">
+                                    <arg value="-c"/>
+                                    <arg value="command -v musl-gcc &gt;/dev/null 2&gt;&amp;1 &amp;&amp; musl-gcc -shared -fPIC -O2 -o '${project.build.outputDirectory}/native/linux-x86_64-musl/libjournalsocket.so' '${project.basedir}/src/main/c/unix_dgram.c' '-I${java.home}/include' '-I${java.home}/include/linux' || echo '[INFO] musl-gcc not found, skipping linux-x86_64-musl'"/>
+                                </exec>
+                                <exec executable="sh" failonerror="true">
+                                    <arg value="-c"/>
+                                    <arg value="command -v aarch64-linux-musl-gcc &gt;/dev/null 2&gt;&amp;1 &amp;&amp; aarch64-linux-musl-gcc -shared -fPIC -O2 -o '${project.build.outputDirectory}/native/linux-aarch64-musl/libjournalsocket.so' '${project.basedir}/src/main/c/unix_dgram.c' '-I${java.home}/include' '-I${java.home}/include/linux' || echo '[INFO] aarch64-linux-musl-gcc not found, skipping linux-aarch64-musl'"/>
+                                </exec>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>integration-test</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.2.5</version>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

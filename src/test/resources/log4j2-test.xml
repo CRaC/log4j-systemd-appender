@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!--
+    AI Tool Usage BOM
+    - - - - - - - - -
+
+    AI Tools Used:
+    - Anthropic Claude Sonnet 4.6
+-->
+<Configuration status="WARN">
+    <Appenders>
+        <Systemd name="journal"
+                 syslogIdentifier="log4j-systemd-it"
+                 syslogFacility="3"
+                 logSource="true"
+                 logStacktrace="true"
+                 logThreadName="true"
+                 logLoggerName="true"
+                 logAppenderName="true"
+                 logThreadContext="true"
+                 threadContextPrefix="THREAD_CONTEXT_"
+                 maxMessageSize="65536"/>
+    </Appenders>
+    <Loggers>
+        <Root level="trace">
+            <AppenderRef ref="journal"/>
+        </Root>
+    </Loggers>
+</Configuration>
