@@ -246,8 +246,8 @@ class JournalSocketTest {
         assertTrue(Files.exists(Path.of(socketPath)), "Python server did not bind in time");
 
         byte[] data = "MESSAGE=hello\n".getBytes(StandardCharsets.UTF_8);
-        try (var socket = UnixDgramSocketFactory.create()) {
-            socket.send(socketPath, data);
+        try (var socket = new JournalSocket(socketPath)) {
+            socket.send(data);
         }
 
         assertTrue(server.waitFor(2, TimeUnit.SECONDS), "Python server did not exit in time");

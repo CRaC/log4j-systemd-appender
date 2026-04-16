@@ -2,6 +2,7 @@
 module org.github.crac.systemd_appender {
     requires org.apache.logging.log4j.core;
     requires org.crac;
+    requires org.newsclub.net.unix;
 
     // Log4j instantiates plugin builders reflectively; open unconditionally
     // because log4j-core is typically on the classpath (unnamed module), and

@@ -10,8 +10,11 @@
 package org.github.crac.systemd_appender;
 
 import org.apache.logging.log4j.status.StatusLogger;
+import org.newsclub.net.unix.AFUNIXDatagramSocket;
+import org.newsclub.net.unix.AFUNIXSocketAddress;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -20,8 +23,7 @@ final class JournalSocket implements AutoCloseable {
     private static final String DEFAULT_SOCKET_PATH = "/run/systemd/journal/socket";
 
     private final String socketPath;
-    private UnixDgramSocket socket;
-    private boolean warnedMissing;
+    private AFUNIXDatagramSocket socket;
 
     JournalSocket() {
         this(DEFAULT_SOCKET_PATH);
@@ -31,61 +33,42 @@ final class JournalSocket implements AutoCloseable {
         this.socketPath = socketPath;
     }
 
-    void send(byte[] data) {
-        UnixDgramSocket s;
+    synchronized void send(byte[] data) {
         try {
-            s = ensureOpen();
+            ensureInited();
+
+            AFUNIXSocketAddress target = AFUNIXSocketAddress.of(Path.of(this.socketPath));
+            this.socket.getChannel().send(ByteBuffer.wrap(data), target);
         } catch (IOException e) {
-            StatusLogger.getLogger().warn("Cannot open Unix DGRAM socket: {}", e.getMessage());
-            return;
-        }
-        if (s == null) {
-            return;
-        }
-        try {
-            s.send(socketPath, data);
-        } catch (IOException e) {
-            StatusLogger.getLogger().warn(
-                    "Failed to send to systemd journal, will retry on next event: {}", e.getMessage());
-            close();
+            handleSendIOException(e);
+        } catch (IllegalArgumentException e) {
+            handleSendIOException(new IOException("Invalid Unix socket address", e));
         }
     }
 
-    private synchronized UnixDgramSocket ensureOpen() throws IOException {
-        if (warnedMissing) {
-            return null;
+    private void ensureInited() throws IOException {
+        if (this.socket == null) {
+            this.socket = AFUNIXDatagramSocket.newInstance();
         }
-        if (socket != null) {
-            return socket;
-        }
-        if (!Files.exists(Path.of(socketPath))) {
+    }
+
+    private void handleSendIOException(IOException e) {
+        if (!Files.exists(Path.of(this.socketPath))) {
             StatusLogger.getLogger().warn(
-                    "Systemd journal socket not found at {}, dropping all log events", socketPath);
-            warnedMissing = true;
-            return null;
+                "Systemd journal socket not found at {}, dropping all log events", this.socketPath);
+        } else {
+            StatusLogger.getLogger().warn(
+                "Failed to send to systemd journal, will retry on next event: {}", e.getMessage());
         }
-        socket = UnixDgramSocketFactory.create();
-        return socket;
+
+        close();
     }
 
     @Override
     public synchronized void close() {
-        if (socket != null) {
-            try {
-                socket.close();
-            } catch (IOException e) {
-                StatusLogger.getLogger().warn("Failed to close journal socket: {}", e.getMessage());
-            }
-            socket = null;
+        if (this.socket != null) {
+            this.socket.close();
+            this.socket = null;
         }
-    }
-
-    /**
-     * Resets state after a CRaC restore so the socket is re-opened on the next
-     * log event. Also clears {@code warnedMissing} so a restored process that
-     * now runs on a systemd host can connect even if it checkpointed elsewhere.
-     */
-    synchronized void afterRestore() {
-        warnedMissing = false;
     }
 }

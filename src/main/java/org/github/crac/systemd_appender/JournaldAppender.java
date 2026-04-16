@@ -75,13 +75,11 @@ public final class JournaldAppender extends AbstractAppender implements org.crac
     @Override
     public void beforeCheckpoint(org.crac.Context<? extends org.crac.Resource> context) {
         socket.close();
-        NativeLoader.deleteTempLibrary();
     }
 
     @Override
     public void afterRestore(org.crac.Context<? extends org.crac.Resource> context) {
         pid = String.valueOf(ProcessHandle.current().pid());
-        socket.afterRestore();
     }
 
     @Override

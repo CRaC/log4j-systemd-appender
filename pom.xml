@@ -15,7 +15,7 @@
     <groupId>org.github.crac</groupId>
     <artifactId>log4j-systemd-appender</artifactId>
     <version>1.0.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
+    <packaging>bundle</packaging>
 
     <name>Log4j 2 Systemd Journal Appender</name>
     <description>Log4j 2 appender that sends structured log events to the systemd journal via Unix datagram socket</description>
@@ -24,6 +24,7 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <log4j.version>2.23.1</log4j.version>
+        <junixsocket.version>2.10.1</junixsocket.version>
         <junit.version>5.10.2</junit.version>
     </properties>
 
@@ -38,6 +39,16 @@
             <groupId>org.crac</groupId>
             <artifactId>crac</artifactId>
             <version>1.5.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.kohlschutter.junixsocket</groupId>
+            <artifactId>junixsocket-native-common</artifactId>
+            <version>${junixsocket.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.kohlschutter.junixsocket</groupId>
+            <artifactId>junixsocket-common</artifactId>
+            <version>${junixsocket.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -69,185 +80,31 @@
                 <version>3.2.5</version>
             </plugin>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>6.0.2</version>
+                <extensions>true</extensions>
                 <configuration>
-                    <archive>
-                        <manifestEntries>
-                            <Multi-Release>true</Multi-Release>
-                            <Enable-Native-Access>org.github.crac.systemd_appender</Enable-Native-Access>
-                        </manifestEntries>
-                    </archive>
+                    <manifestLocation>META-INF</manifestLocation>
+                    <instructions>
+                        <Include-Resource>
+                            {maven-resources},
+                            META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat=target/classes/META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat
+                        </Include-Resource>
+                        <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
+                        <Bundle-Name>${project.artifactId}</Bundle-Name>
+                        <Bundle-Version>${project.version}</Bundle-Version>
+                        <Embed-Dependency>junixsocket-native-common,junixsocket-common</Embed-Dependency>
+                        <Embed-Transitive>true</Embed-Transitive>
+                        <Fragment-Host>org.apache.logging.log4j.api</Fragment-Host>
+                        <Import-Package>
+                            org.apache.logging.log4j.core.*,
+                            org.crac
+                        </Import-Package>
+                        <Export-Package>org.github.crac.systemd_appender</Export-Package>
+                    </instructions>
                 </configuration>
-            </plugin>
-            <!--
-                Compile the JNI shim for four targets (glibc and musl, x86_64 and aarch64).
-                Build requirements:
-                  - gcc                      (package: gcc)
-                  - aarch64-linux-gnu-gcc    (package: gcc-aarch64-linux-gnu)
-                  - musl-gcc                 (package: musl-tools)
-                  - aarch64-linux-musl-gcc   (musl cross-compilation toolchain, e.g. from musl.cc)
-                The .so files land in target/classes/native/... and are bundled in the JAR.
-                NativeLoader selects the musl variant at runtime when the musl dynamic linker
-                is detected (i.e. on Alpine Linux and other musl-based distributions).
-                Not used when building with -Pffm.
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>compile-native</id>
-                        <phase>generate-resources</phase>
-                        <goals><goal>run</goal></goals>
-                        <configuration>
-                            <target>
-                                <mkdir dir="${project.build.outputDirectory}/native/linux-x86_64"/>
-                                <mkdir dir="${project.build.outputDirectory}/native/linux-aarch64"/>
-                                <mkdir dir="${project.build.outputDirectory}/native/linux-x86_64-musl"/>
-                                <mkdir dir="${project.build.outputDirectory}/native/linux-aarch64-musl"/>
-                                <exec executable="gcc" failonerror="true">
-                                    <arg value="-shared"/>
-                                    <arg value="-fPIC"/>
-                                    <arg value="-O2"/>
-                                    <arg value="-o"/>
-                                    <arg value="${project.build.outputDirectory}/native/linux-x86_64/libjournalsocket.so"/>
-                                    <arg value="${project.basedir}/src/main/c/unix_dgram.c"/>
-                                    <arg value="-I${java.home}/include"/>
-                                    <arg value="-I${java.home}/include/linux"/>
-                                </exec>
-                                <exec executable="aarch64-linux-gnu-gcc" failonerror="true">
-                                    <arg value="-shared"/>
-                                    <arg value="-fPIC"/>
-                                    <arg value="-O2"/>
-                                    <arg value="-o"/>
-                                    <arg value="${project.build.outputDirectory}/native/linux-aarch64/libjournalsocket.so"/>
-                                    <arg value="${project.basedir}/src/main/c/unix_dgram.c"/>
-                                    <arg value="-I${java.home}/include"/>
-                                    <arg value="-I${java.home}/include/linux"/>
-                                </exec>
-                                <exec executable="sh" failonerror="true">
-                                    <arg value="-c"/>
-                                    <arg value="command -v musl-gcc &gt;/dev/null 2&gt;&amp;1 &amp;&amp; musl-gcc -shared -fPIC -O2 -o '${project.build.outputDirectory}/native/linux-x86_64-musl/libjournalsocket.so' '${project.basedir}/src/main/c/unix_dgram.c' '-I${java.home}/include' '-I${java.home}/include/linux' || echo '[INFO] musl-gcc not found, skipping linux-x86_64-musl'"/>
-                                </exec>
-                                <exec executable="sh" failonerror="true">
-                                    <arg value="-c"/>
-                                    <arg value="command -v aarch64-linux-musl-gcc &gt;/dev/null 2&gt;&amp;1 &amp;&amp; aarch64-linux-musl-gcc -shared -fPIC -O2 -o '${project.build.outputDirectory}/native/linux-aarch64-musl/libjournalsocket.so' '${project.basedir}/src/main/c/unix_dgram.c' '-I${java.home}/include' '-I${java.home}/include/linux' || echo '[INFO] aarch64-linux-musl-gcc not found, skipping linux-aarch64-musl'"/>
-                                </exec>
-                            </target>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>integration-test</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-failsafe-plugin</artifactId>
-                        <version>3.2.5</version>
-                        <configuration>
-                            <excludes>
-                                <exclude>**/*CracIT.java</exclude>
-                            </excludes>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <goals>
-                                    <goal>integration-test</goal>
-                                    <goal>verify</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <profile>
-            <id>crac-integration-test</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-failsafe-plugin</artifactId>
-                        <version>3.2.5</version>
-                        <configuration>
-                            <jvm>${env.CRAC_JAVA_HOME}/bin/java</jvm>
-                            <argLine>--enable-native-access=ALL-UNNAMED -XX:+IgnoreUnrecognizedVMOptions -XX:CRaCEngine=simengine -XX:CRaCCheckpointTo=/tmp/cr</argLine>
-                            <includes>
-                                <include>**/*CracIT.java</include>
-                            </includes>
-                        </configuration>
-                        <executions>
-                            <execution>
-                                <goals>
-                                    <goal>integration-test</goal>
-                                    <goal>verify</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-        <!--
-            Automatically active when the build JDK is 22 or newer.
-            Compiles src/main/java22 at release 22 into META-INF/versions/22/
-            inside the JAR (Multi-Release JAR).  At runtime JDK 22+ automatically
-            selects the FFM UnixDgramSocket; older JVMs use the JNI class from
-            the root of the JAR.
-            The JNI .so files are still compiled and bundled; they are simply
-            unused when the JVM selects the FFM class.
-        -->
-        <profile>
-            <id>java22-sources</id>
-            <activation>
-                <jdk>[22,)</jdk>
-            </activation>
-            <build>
-                <plugins>
-                    <!-- Compile the FFM sources at Java 22 into META-INF/versions/22/ -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-compiler-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>compile-java22</id>
-                                <goals><goal>compile</goal></goals>
-                                <configuration>
-                                    <release>22</release>
-                                    <compileSourceRoots>
-                                        <compileSourceRoot>${project.basedir}/src/main/java22</compileSourceRoot>
-                                    </compileSourceRoots>
-                                    <multiReleaseOutput>true</multiReleaseOutput>
-                                    <proc>none</proc>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <!-- Enable FFM restricted native access in unit and integration tests -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <argLine>--enable-native-access=ALL-UNNAMED</argLine>
-                        </configuration>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-failsafe-plugin</artifactId>
-                        <configuration>
-                            <argLine>--enable-native-access=ALL-UNNAMED</argLine>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
 </project>
