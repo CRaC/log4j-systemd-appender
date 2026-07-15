@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Queue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 final class JournalSocket implements AutoCloseable {
 
@@ -24,6 +26,7 @@ final class JournalSocket implements AutoCloseable {
 
     private final String socketPath;
     private AFUNIXDatagramSocket socket;
+    private final Queue<byte[]> toSendQueue = new LinkedBlockingQueue<>();
 
     JournalSocket() {
         this(DEFAULT_SOCKET_PATH);
@@ -31,14 +34,26 @@ final class JournalSocket implements AutoCloseable {
 
     JournalSocket(String socketPath) {
         this.socketPath = socketPath;
+        try {
+            init();
+        } catch (IOException e) {
+            handleSendIOException(e);
+        }
     }
 
     synchronized void send(byte[] data) {
-        try {
-            ensureInited();
+        this.toSendQueue.add(data);
 
-            AFUNIXSocketAddress target = AFUNIXSocketAddress.of(Path.of(this.socketPath));
-            this.socket.getChannel().send(ByteBuffer.wrap(data), target);
+        if (this.socket == null) {
+            return;
+        }
+
+        try {
+            while(!this.toSendQueue.isEmpty()) {
+                byte[] toSend = this.toSendQueue.poll();
+                AFUNIXSocketAddress target = AFUNIXSocketAddress.of(Path.of(this.socketPath));
+                this.socket.getChannel().send(ByteBuffer.wrap(toSend), target);
+            }
         } catch (IOException e) {
             handleSendIOException(e);
         } catch (IllegalArgumentException e) {
@@ -46,7 +61,7 @@ final class JournalSocket implements AutoCloseable {
         }
     }
 
-    private void ensureInited() throws IOException {
+    public synchronized void init() throws IOException {
         if (this.socket == null) {
             this.socket = AFUNIXDatagramSocket.newInstance();
         }

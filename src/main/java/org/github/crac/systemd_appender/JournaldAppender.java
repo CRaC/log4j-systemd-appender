@@ -407,7 +407,7 @@ public final class JournaldAppender extends AbstractAppender {
 
                 @Override
                 public void afterRestore(org.crac.Context<? extends org.crac.Resource> context) throws Exception {
-                    appender.socket.ensureInited();
+                    appender.socket.init();
                 }
             });
         }
