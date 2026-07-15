@@ -99,7 +99,7 @@
                         <Fragment-Host>org.apache.logging.log4j.api</Fragment-Host>
                         <Import-Package>
                             org.apache.logging.log4j.core.*,
-                            org.crac
+                            org.crac;resolution:=optional
                         </Import-Package>
                         <Export-Package>org.github.crac.systemd_appender</Export-Package>
                     </instructions>

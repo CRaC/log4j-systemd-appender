@@ -31,7 +31,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 
 @Plugin(name = "SystemdJournal", category = Core.CATEGORY_NAME, elementType = Appender.ELEMENT_TYPE, printObject = true)
-public final class JournaldAppender extends AbstractAppender implements org.crac.Resource {
+public final class JournaldAppender extends AbstractAppender {
 
     private static final byte[] TRUNCATED_MARKER =
             "[TRUNCATED]".getBytes(StandardCharsets.UTF_8);
@@ -69,17 +69,6 @@ public final class JournaldAppender extends AbstractAppender implements org.crac
         this.logThreadContext = logThreadContext;
         this.threadContextPrefix = threadContextPrefix;
         this.maxMessageSize = maxMessageSize;
-        org.crac.Core.getGlobalContext().register(this);
-    }
-
-    @Override
-    public void beforeCheckpoint(org.crac.Context<? extends org.crac.Resource> context) {
-        socket.close();
-    }
-
-    @Override
-    public void afterRestore(org.crac.Context<? extends org.crac.Resource> context) {
-        pid = String.valueOf(ProcessHandle.current().pid());
     }
 
     @Override
@@ -378,17 +367,49 @@ public final class JournaldAppender extends AbstractAppender implements org.crac
                 layout = PatternLayout.newBuilder().withPattern("%m").build();
             }
             String pid = String.valueOf(ProcessHandle.current().pid());
-            return new JournaldAppender(
+
+            JournaldAppender appender = new JournaldAppender(
                     getName(), getFilter(), layout, isIgnoreExceptions(),
                     new JournalSocket(), id, syslogFacility, pid,
                     logSource, logStacktrace, logThreadName, logLoggerName, logLoggerAppName,
                     logAppenderName, logThreadContext, threadContextPrefix, maxMessageSize);
+
+            if (isCracSupported()) {
+                CracSupport.register(appender);
+            }
+
+            return appender;
         }
 
         private static String resolveProcessName() {
             return ProcessHandle.current().info().command()
                     .map(cmd -> Path.of(cmd).getFileName().toString())
                     .orElse("java");
+        }
+
+        private static boolean isCracSupported() {
+            try {
+                Class.forName("org.crac.Resource");
+                return true;
+            } catch (ClassNotFoundException | NoClassDefFoundError e) {
+                return false;
+            }
+        }
+    }
+
+    final class CracSupport {
+        static void register(JournaldAppender appender) {
+            org.crac.Core.getGlobalContext().register(new org.crac.Resource() {
+                @Override
+                public void beforeCheckpoint(org.crac.Context<?> context) {
+                    appender.socket.close();
+                }
+
+                @Override
+                public void afterRestore(org.crac.Context<? extends org.crac.Resource> context) throws Exception {
+                    appender.socket.ensureInited();
+                }
+            });
         }
     }
 }
